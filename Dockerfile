@@ -11,8 +11,8 @@ COPY UIUX/package.json UIUX/package-lock.json ./UIUX/
 RUN cd UIUX && npm ci --omit=dev
 
 COPY UIUX/server ./UIUX/server
-COPY data/crm.db ./data/crm.db
-COPY data/dashboard_sales.db ./data/dashboard_sales.db
+COPY data/crm.db.gz ./data/crm.db.gz
+RUN node -e "const fs=require('fs'); const zlib=require('zlib'); const { pipeline } = require('stream/promises'); fs.mkdirSync('./data', { recursive: true }); pipeline(fs.createReadStream('./data/crm.db.gz'), zlib.createGunzip(), fs.createWriteStream('./data/crm.db')).then(() => fs.unlinkSync('./data/crm.db.gz')).catch((error) => { console.error(error); process.exit(1); });"
 
 EXPOSE 3001
 

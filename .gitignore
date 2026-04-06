@@ -15,6 +15,7 @@ Decko - CRM Dashboard.jfif
 data/*.db
 data/*.db-*
 data/*.db.*
+!data/crm.db.gz
 data/dashboard_sales.db
 data/dashboard_sales.db-*
 data/dashboard_sales.db.*

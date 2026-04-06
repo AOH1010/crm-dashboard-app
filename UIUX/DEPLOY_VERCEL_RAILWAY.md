@@ -1,105 +1,96 @@
 # Deploy Vercel + Railway
 
-Mục tiêu:
-- `Railway` chạy backend API Node/Express và mang theo snapshot hiện tại của `crm.db`.
-- `Vercel` chạy frontend Vite/React.
+Muc tieu:
+- `Railway` chay backend API Node/Express va dung snapshot hien tai cua `crm.db`.
+- `Vercel` chay frontend Vite/React.
 
-## Kiến trúc sau khi deploy
+## Kien truc sau khi deploy
 
 - Frontend: `Vercel`
 - Backend API: `Railway`
-- Frontend gọi backend qua `VITE_API_BASE_URL`
-- Railway image hiện tại đã đóng gói sẵn:
-  - `data/crm.db`
-  - `data/dashboard_sales.db`
+- Frontend goi backend qua `VITE_API_BASE_URL`
+- Railway build tu `Dockerfile` o root repo
+- Docker image giai nen `data/crm.db.gz` thanh `data/crm.db` luc build
+- Backend tu tao `dashboard_sales.db` khi khoi dong
 
-Ghi chú:
-- Cách này cho bạn lên web nhanh nhất từ code hiện tại.
-- Khi bạn scrape/update dữ liệu nhiều về sau, nên nâng cấp Railway sang volume riêng và trỏ `CRM_DATA_DIR=/data`.
+Ghi chu:
+- Cach nay phu hop de len web nhanh voi code hien tai.
+- Repo GitHub phai de `private` vi snapshot DB nam trong repo.
 
 ## 1. Deploy Railway Backend
 
-Thực hiện ở thư mục repo gốc:
+Trong Railway dashboard:
 
-```powershell
-cd "d:\Project\CRM 1"
-npx @railway/cli login
-npx @railway/cli init
-npx @railway/cli up
-```
+1. `New Project`
+2. `Deploy from GitHub repo`
+3. Chon repo `AOH1010/crm-dashboard-app`
+4. Railway se build tu `Dockerfile` o root repo
 
-Sau đó vào Railway dashboard và đặt các variables:
+Sau do set variables:
 
 - `GEMINI_API_KEY`
 - `CRM_AGENT_MODEL=gemini-2.5-flash`
 - `PREBUILD_DASHBOARD_DB=true`
 
-Tiếp theo:
-- mở service backend
-- vào `Settings`
-- bấm `Generate Domain`
+Tiep theo:
+- Mo service backend
+- Vao `Settings`
+- Bam `Generate Domain`
 
-Kết quả bạn sẽ có URL dạng:
+Ban se nhan duoc URL dang:
 
 ```text
 https://your-backend-name.up.railway.app
 ```
 
-Kiểm tra nhanh:
+Kiem tra nhanh:
 
 ```text
 https://your-backend-name.up.railway.app/api/health
 ```
 
-Nếu thấy `{"ok":true}` là backend đã chạy.
+Neu thay `{"ok":true}` la backend da chay.
 
 ## 2. Deploy Vercel Frontend
 
-Thực hiện trong thư mục `UIUX`:
+Trong thu muc `UIUX`:
 
 ```powershell
 cd "d:\Project\CRM 1\UIUX"
 npx vercel login
 ```
 
-Set environment variable cho frontend:
+Set environment variable:
 
 ```powershell
-npx vercel env add VITE_API_BASE_URL production
-npx vercel env add VITE_API_BASE_URL preview
-```
-
-Giá trị cần nhập là domain Railway ở bước 1, ví dụ:
-
-```text
-https://your-backend-name.up.railway.app
+npx vercel env add VITE_API_BASE_URL production --value "https://your-backend-name.up.railway.app" --yes
+npx vercel env add VITE_API_BASE_URL preview --value "https://your-backend-name.up.railway.app" --yes
 ```
 
 Deploy:
 
 ```powershell
-npx vercel
 npx vercel --prod
 ```
 
-## 3. Kiểm tra sau deploy
+## 3. Kiem tra sau deploy
 
-- Mở domain Vercel
-- Vào các tab `Dashboard`, `Leads`, `Conversion`
-- Mở DevTools nếu cần và kiểm tra các request `/api/...` đang đi tới domain Railway
+- Mo domain Vercel
+- Vao cac tab `Dashboard`, `Leads`, `Conversion`
+- Kiem tra request `/api/...` da tro toi domain Railway
 
-## 4. Luồng cập nhật khi bạn build tiếp
+## 4. Luong cap nhat khi ban build tiep
 
-- Sửa UI: deploy lại Vercel
-- Sửa backend/API: deploy lại Railway
-- Nếu update snapshot DB trong repo: deploy lại Railway để backend dùng snapshot mới
+- Sua UI: push repo, redeploy Vercel
+- Sua backend/API: push repo, redeploy Railway
+- Neu update du lieu: tao lai `data/crm.db.gz`, push repo, redeploy Railway
 
-## 5. Nâng cấp sau này
+## 5. Nang cap sau nay
 
-Khi bạn muốn Railway giữ DB bền vững hơn thay vì dùng snapshot trong image:
+Khi muon Railway giu DB ben vung hon thay vi dung snapshot trong image:
 
-1. Tạo Railway Volume
-2. Mount vào ví dụ `/data`
+1. Tao Railway Volume
+2. Mount vao vi du `/data`
 3. Set env:
 
 ```text
@@ -108,7 +99,5 @@ CRM_DB_PATH=/data/crm.db
 DASHBOARD_DB_PATH=/data/dashboard_sales.db
 ```
 
-4. Copy `crm.db` lên volume
+4. Copy `crm.db` len volume
 5. Redeploy backend
-
-Lúc đó bạn không còn phụ thuộc vào DB được bake sẵn trong image nữa.
