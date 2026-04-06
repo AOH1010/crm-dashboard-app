@@ -186,6 +186,14 @@ function closeDatabase(db) {
 
 function openAgentDatabase() {
   const db = new DatabaseSync(CRM_DB_PATH);
+  try {
+    db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA busy_timeout = 60000;
+    `);
+  } catch {
+    // Ignore PRAGMA failures and continue with default settings.
+  }
   const escapedDashboardPath = DASHBOARD_DB_PATH.replace(/'/g, "''");
   db.exec(`ATTACH DATABASE '${escapedDashboardPath}' AS dashboard`);
   return db;

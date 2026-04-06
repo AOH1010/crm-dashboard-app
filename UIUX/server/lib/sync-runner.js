@@ -65,6 +65,14 @@ function readSyncTable() {
   }
   const db = new DatabaseSync(crmDbPath);
   try {
+    db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA busy_timeout = 60000;
+    `);
+  } catch {
+    // Ignore PRAGMA failures and continue with default settings.
+  }
+  try {
     const tableExists = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sync_state'")
       .get();

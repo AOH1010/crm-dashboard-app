@@ -204,7 +204,16 @@ function getValueMap(rows, keyField, valueField) {
 }
 
 function openDatabase(dbPath) {
-  return new DatabaseSync(dbPath);
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA busy_timeout = 60000;
+    `);
+  } catch {
+    // Ignore PRAGMA failures and continue with default settings.
+  }
+  return db;
 }
 
 function closeDatabase(db) {

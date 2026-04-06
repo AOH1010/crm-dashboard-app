@@ -21,8 +21,10 @@ FIELDS = "id,contact_name,dept_id,dept_name,email,contact_mobile,extensions"
 
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=60)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout = 60000")
     return conn
 
 
