@@ -58,12 +58,23 @@ const QUERY_TOOL_DECLARATION = {
 let aiClient = null;
 let schemaCache = null;
 let schemaCacheSignature = null;
+let sellerNameCache = null;
+let sellerNameCacheSignature = null;
 
 function clamp(value, min, max) {
   if (!Number.isFinite(value)) {
     return min;
   }
   return Math.min(Math.max(value, min), max);
+}
+
+function foldText(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[đĐ]/g, "d")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 function toJsonSafe(value) {
@@ -220,6 +231,153 @@ function buildSchemaHint() {
   }
 }
 
+function buildSellerNameCache() {
+  const crmMtime = fs.statSync(CRM_DB_PATH).mtimeMs;
+  if (sellerNameCache && sellerNameCacheSignature === String(crmMtime)) {
+    return sellerNameCache;
+  }
+
+  const db = openAgentDatabase();
+  try {
+    const rows = db.prepare(`
+      SELECT DISTINCT TRIM(COALESCE(name, '')) AS name
+      FROM (
+        SELECT saler_name AS name FROM orders
+        UNION ALL
+        SELECT contact_name AS name FROM staffs
+      )
+      WHERE LENGTH(TRIM(COALESCE(name, ''))) > 0
+    `).all();
+
+    const canonicalNames = rows
+      .map((row) => String(row.name || "").trim())
+      .filter((value) => value.length > 0)
+      .sort((left, right) => right.length - left.length || left.localeCompare(right));
+
+    sellerNameCache = canonicalNames.map((name) => ({
+      canonical: name,
+      folded: foldText(name),
+    }));
+    sellerNameCacheSignature = String(crmMtime);
+    return sellerNameCache;
+  } finally {
+    closeDatabase(db);
+  }
+}
+
+function getLatestOrderYear() {
+  const db = openAgentDatabase();
+  try {
+    const row = db.prepare(`
+      SELECT MAX(SUBSTR(COALESCE(NULLIF(TRIM(order_date), ''), SUBSTR(NULLIF(TRIM(created_at), ''), 1, 10)), 1, 4)) AS latest_year
+      FROM orders
+      WHERE LENGTH(COALESCE(NULLIF(TRIM(order_date), ''), SUBSTR(NULLIF(TRIM(created_at), ''), 1, 10))) >= 10
+    `).get();
+    return Number.parseInt(String(row?.latest_year || ""), 10) || new Date().getFullYear();
+  } finally {
+    closeDatabase(db);
+  }
+}
+
+function extractMonthYear(question) {
+  const normalized = foldText(question);
+  const monthMatch = normalized.match(/\bthang\s*(\d{1,2})\b/);
+  if (!monthMatch) {
+    return null;
+  }
+
+  const month = Number.parseInt(monthMatch[1], 10);
+  if (month < 1 || month > 12) {
+    return null;
+  }
+
+  const yearMatch = normalized.match(/\b(20\d{2})\b/);
+  return {
+    month,
+    year: yearMatch ? Number.parseInt(yearMatch[1], 10) : null,
+  };
+}
+
+function detectSellerName(question) {
+  const foldedQuestion = foldText(question);
+  const sellerNames = buildSellerNameCache();
+  return sellerNames.find((entry) => (
+    entry.folded.length >= 6 && foldedQuestion.includes(entry.folded)
+  ))?.canonical || null;
+}
+
+function isLikelySellerRevenueQuestion(question) {
+  const foldedQuestion = foldText(question);
+  if (/(doanh so|doanh thu|revenue|ban duoc bao nhieu)/.test(foldedQuestion)) {
+    return true;
+  }
+
+  const monthInfo = extractMonthYear(question);
+  const sellerName = detectSellerName(question);
+  return Boolean(monthInfo && sellerName);
+}
+
+function maybeHandleDirectSellerRevenueQuestion(question) {
+  if (!isLikelySellerRevenueQuestion(question)) {
+    return null;
+  }
+
+  const sellerName = detectSellerName(question);
+  const monthInfo = extractMonthYear(question);
+  if (!sellerName || !monthInfo) {
+    return null;
+  }
+
+  const assumedYear = monthInfo.year || getLatestOrderYear();
+  const monthKey = `${assumedYear}-${String(monthInfo.month).padStart(2, "0")}`;
+  const db = openAgentDatabase();
+
+  try {
+    const rows = db.prepare(`
+      SELECT
+        COALESCE(real_amount, 0) AS amount,
+        TRIM(COALESCE(status_label, '')) AS status_label,
+        COALESCE(NULLIF(TRIM(order_code), ''), 'N/A') AS order_code
+      FROM orders
+      WHERE TRIM(COALESCE(saler_name, '')) = ?
+        AND SUBSTR(COALESCE(NULLIF(TRIM(order_date), ''), SUBSTR(NULLIF(TRIM(created_at), ''), 1, 10)), 1, 7) = ?
+    `).all(sellerName, monthKey);
+
+    const nonCancelledRows = rows.filter((row) => !foldText(row.status_label).includes("huy"));
+    const totalRevenue = nonCancelledRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const orderCount = nonCancelledRows.length;
+
+    if (orderCount === 0) {
+      return {
+        reply: `Khong tim thay doanh so cua ${sellerName} trong thang ${monthInfo.month}/${assumedYear}.`,
+        sql_logs: [{
+          name: "direct_seller_month_revenue",
+          sql: `orders by saler_name='${sellerName}' and month='${monthKey}'`,
+          row_count: 0,
+          row_limit: 0,
+        }],
+      };
+    }
+
+    const assumptionText = monthInfo.year ? "" : ` (mac dinh nam ${assumedYear})`;
+    return {
+      reply: [
+        `${sellerName} dat doanh so ${Math.round(totalRevenue).toLocaleString("vi-VN")} VND trong thang ${monthInfo.month}/${assumedYear}${assumptionText}.`,
+        `- So don khong huy: ${orderCount}.`,
+        `- Doanh thu binh quan/don: ${Math.round(totalRevenue / orderCount).toLocaleString("vi-VN")} VND.`,
+      ].join("\n"),
+      sql_logs: [{
+        name: "direct_seller_month_revenue",
+        sql: `orders by saler_name='${sellerName}' and month='${monthKey}'`,
+        row_count: orderCount,
+        row_limit: orderCount,
+      }],
+    };
+  } finally {
+    closeDatabase(db);
+  }
+}
+
 function getAiClient() {
   if (aiClient) {
     return aiClient;
@@ -300,6 +458,11 @@ export async function chatWithCrmAgent({
       reply: "Vui lòng gửi câu hỏi mới từ người dùng.",
       sql_logs: [],
     };
+  }
+
+  const directRevenueAnswer = maybeHandleDirectSellerRevenueQuestion(latestMessage.content);
+  if (directRevenueAnswer) {
+    return directRevenueAnswer;
   }
 
   const ai = getAiClient();
