@@ -25,4 +25,4 @@ COPY data/crm.db.gz ./seed-data/crm.db.gz
 
 EXPOSE 3001
 
-CMD ["node", "railway/start-backend.mjs"]
+CMD ["node", "railway/entrypoint.mjs"]

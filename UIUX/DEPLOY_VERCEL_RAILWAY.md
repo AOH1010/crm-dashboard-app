@@ -30,11 +30,7 @@ Repo da co san:
 Trong Railway:
 1. Dung service backend hien tai `crm-dashboard-app`.
 2. Attach volume vao mount path: `/app/data`
-3. O `Settings`, nen de `Custom Start Command` trong hoac dat:
-
-```text
-node railway/start-backend.mjs
-```
+3. O `Settings`, co the de `Custom Start Command` trong. Docker mac dinh se vao che do backend.
 
 4. Set variables cho backend:
 
@@ -68,11 +64,7 @@ Tao them mot service moi tu cung repo, vi du `crm-sync-trigger`.
 Service nay:
 - khong can public domain
 - khong can volume
-- chi can `Custom Start Command`:
-
-```text
-node railway/run-sync-trigger.mjs
-```
+- dung cung image, chi can set `APP_ROLE=sync-trigger`
 
 Variables:
 
@@ -81,6 +73,7 @@ SYNC_TRIGGER_URL=https://your-backend.up.railway.app/api/admin/sync
 SYNC_ADMIN_TOKEN=giong_backend
 SYNC_TRIGGER_MODE=incremental
 SYNC_TRIGGER_SOURCE=railway-cron
+APP_ROLE=sync-trigger
 ```
 
 Sau do bat `Cron` cho service nay theo lich ban muon.
