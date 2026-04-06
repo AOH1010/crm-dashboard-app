@@ -8,7 +8,7 @@ ENV HOST=0.0.0.0
 ENV PREBUILD_DASHBOARD_DB=true
 
 COPY UIUX/package.json UIUX/package-lock.json ./UIUX/
-RUN cd UIUX && npm ci --omit=dev
+RUN cd UIUX && npm ci --omit=dev --legacy-peer-deps
 
 COPY UIUX/server ./UIUX/server
 COPY data/crm.db.gz ./data/crm.db.gz
