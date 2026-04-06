@@ -19,7 +19,7 @@ COPY UIUX/server ./UIUX/server
 COPY tasks ./tasks
 COPY railway ./railway
 COPY tasks/requirements.txt ./tasks/requirements.txt
-RUN pip3 install --no-cache-dir -r ./tasks/requirements.txt
+RUN pip3 install --break-system-packages --no-cache-dir -r ./tasks/requirements.txt
 
 COPY data/crm.db.gz ./seed-data/crm.db.gz
 
