@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm install --prefix UIUX",
+  "buildCommand": "npm run build --prefix UIUX",
+  "outputDirectory": "UIUX/dist",
+  "git": {
+    "deploymentEnabled": true
+  }
+}
