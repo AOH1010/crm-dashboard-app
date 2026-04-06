@@ -20,6 +20,10 @@ interface MarkdownTextBlock {
 
 type MarkdownBlock = MarkdownTableBlock | MarkdownTextBlock;
 
+const USD_TO_VND = 26500;
+const INPUT_COST_PER_MILLION_TOKENS_USD = 0.3;
+const OUTPUT_COST_PER_MILLION_TOKENS_USD = 2.5;
+
 const QUICK_PROMPTS: Record<string, string[]> = {
   dashboard: [
     "Tom tat KPI chinh hom nay.",
@@ -163,8 +167,24 @@ function AssistantContent({ content }: { content: string }) {
   );
 }
 
+function estimateMessageCostVnd(message: AgentMessage) {
+  if (!message.usage) {
+    return null;
+  }
+
+  if (message.usage.provider === "nvidia") {
+    return 0;
+  }
+
+  const promptCostVnd = (message.usage.prompt_tokens / 1_000_000) * INPUT_COST_PER_MILLION_TOKENS_USD * USD_TO_VND;
+  const outputBillableTokens = (message.usage.completion_tokens || 0) + (message.usage.thoughts_tokens || 0);
+  const outputCostVnd = (outputBillableTokens / 1_000_000) * OUTPUT_COST_PER_MILLION_TOKENS_USD * USD_TO_VND;
+  return promptCostVnd + outputCostVnd;
+}
+
 function MessageBubble({ message }: { message: AgentMessage }) {
   const isUser = message.role === "user";
+  const estimatedCostVnd = estimateMessageCostVnd(message);
 
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
@@ -179,7 +199,16 @@ function MessageBubble({ message }: { message: AgentMessage }) {
         {isUser ? (
           <p className="whitespace-pre-wrap text-sm">{message.content}</p>
         ) : (
-          <AssistantContent content={message.content} />
+          <div className="space-y-3">
+            <AssistantContent content={message.content} />
+            {estimatedCostVnd !== null ? (
+              <div className="px-1 text-[11px] font-semibold text-gray-400">
+                {message.usage?.provider === "nvidia"
+                  ? "Free / 0d"
+                  : `~${Math.round(estimatedCostVnd).toLocaleString("vi-VN")} d / call`}
+              </div>
+            ) : null}
+          </div>
         )}
       </div>
     </div>
@@ -238,6 +267,7 @@ export default function CrmAgentWidget({ viewId }: CrmAgentWidgetProps) {
           content: reply.length > 0
             ? reply
             : "Khong tim thay du lieu phu hop voi cau hoi nay.",
+          usage: payload.usage,
         },
       ]);
     } catch {

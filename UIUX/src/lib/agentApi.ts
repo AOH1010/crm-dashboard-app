@@ -3,10 +3,26 @@ import { buildApiUrl } from "./apiBase";
 export interface AgentMessage {
   role: "user" | "assistant";
   content: string;
+  usage?: {
+    provider?: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    thoughts_tokens?: number;
+    tool_use_prompt_tokens?: number;
+  };
 }
 
 export interface AgentChatResponse {
   reply: string;
+  usage?: {
+    provider?: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    thoughts_tokens?: number;
+    tool_use_prompt_tokens?: number;
+  };
   sql_logs?: Array<{
     name: string;
     sql: string;

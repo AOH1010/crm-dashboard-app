@@ -13,12 +13,15 @@ import {
 } from "./dashboard-sales-db.js";
 
 const QUERY_FUNCTION_NAME = "query_crm_data";
-const DEFAULT_MODEL = process.env.CRM_AGENT_MODEL || "gemini-2.5-flash";
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_TOOL_ROUNDS = 6;
 const DEFAULT_MAX_ROWS = 40;
 const ABS_MAX_ROWS = 120;
 const MAX_SQL_LENGTH = 4000;
+const NVIDIA_CHAT_URL = process.env.NVIDIA_CHAT_URL || "https://integrate.api.nvidia.com/v1/chat/completions";
+const NVIDIA_MAX_TOKENS = Number.parseInt(process.env.CRM_AGENT_MAX_TOKENS || "16384", 10);
+const NVIDIA_TEMPERATURE = Number.parseFloat(process.env.CRM_AGENT_TEMPERATURE || "0.15");
+const NVIDIA_TOP_P = Number.parseFloat(process.env.CRM_AGENT_TOP_P || "0.95");
 const VALID_SQL_START = /^\s*(select|with)\b/i;
 const FORBIDDEN_SQL_KEYWORDS = /\b(insert|update|delete|drop|alter|create|replace|truncate|pragma|attach|detach|vacuum|reindex|analyze|begin|commit|rollback)\b/i;
 const TABLE_REFERENCE_PATTERN = /\b(?:from|join)\s+([a-zA-Z0-9_.`"[\]]+)/gi;
@@ -55,11 +58,65 @@ const QUERY_TOOL_DECLARATION = {
   },
 };
 
+const NVIDIA_TOOL_DECLARATION = {
+  type: "function",
+  function: {
+    name: QUERY_TOOL_DECLARATION.name,
+    description: QUERY_TOOL_DECLARATION.description,
+    parameters: QUERY_TOOL_DECLARATION.parametersJsonSchema,
+  },
+};
+
 let aiClient = null;
 let schemaCache = null;
 let schemaCacheSignature = null;
 let sellerNameCache = null;
 let sellerNameCacheSignature = null;
+
+function getDefaultProvider() {
+  return String(process.env.CRM_AGENT_PROVIDER || "").trim().toLowerCase()
+    || (process.env.NVIDIA_API_KEY ? "nvidia" : "gemini");
+}
+
+function getDefaultModel() {
+  return process.env.CRM_AGENT_MODEL
+    || (getDefaultProvider() === "nvidia" ? "google/gemma-4-31b-it" : "gemini-2.5-flash");
+}
+
+function createEmptyUsage() {
+  return {
+    provider: getDefaultProvider(),
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+    thoughts_tokens: 0,
+    tool_use_prompt_tokens: 0,
+  };
+}
+
+function accumulateUsage(target, usageMetadata) {
+  if (!usageMetadata) {
+    return target;
+  }
+
+  target.prompt_tokens += Number(usageMetadata.promptTokenCount || 0);
+  target.completion_tokens += Number(usageMetadata.candidatesTokenCount || 0);
+  target.total_tokens += Number(usageMetadata.totalTokenCount || 0);
+  target.thoughts_tokens += Number(usageMetadata.thoughtsTokenCount || 0);
+  target.tool_use_prompt_tokens += Number(usageMetadata.toolUsePromptTokenCount || 0);
+  return target;
+}
+
+function accumulateNvidiaUsage(target, usage) {
+  if (!usage) {
+    return target;
+  }
+
+  target.prompt_tokens += Number(usage.prompt_tokens || 0);
+  target.completion_tokens += Number(usage.completion_tokens || 0);
+  target.total_tokens += Number(usage.total_tokens || 0);
+  return target;
+}
 
 function clamp(value, min, max) {
   if (!Number.isFinite(value)) {
@@ -398,6 +455,14 @@ function getAiClient() {
   return aiClient;
 }
 
+function getNvidiaApiKey() {
+  const apiKey = process.env.NVIDIA_API_KEY;
+  if (!apiKey) {
+    throw new Error("Missing NVIDIA_API_KEY in environment.");
+  }
+  return apiKey;
+}
+
 function normalizeMessages(messages) {
   if (!Array.isArray(messages)) {
     return [];
@@ -423,6 +488,16 @@ function toGeminiContent(messages) {
     role: message.role === "assistant" ? "model" : "user",
     parts: [{ text: message.content }],
   }));
+}
+
+function toNvidiaMessages(messages, systemInstruction) {
+  return [
+    { role: "system", content: systemInstruction },
+    ...messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+    })),
+  ];
 }
 
 function executeSqlQuery({ sql, maxRows }) {
@@ -452,17 +527,148 @@ function executeSqlQuery({ sql, maxRows }) {
   }
 }
 
+async function callNvidiaChatCompletion({ messages, tools }) {
+  const response = await fetch(NVIDIA_CHAT_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getNvidiaApiKey()}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: getDefaultModel(),
+      messages,
+      tools,
+      tool_choice: "auto",
+      max_tokens: NVIDIA_MAX_TOKENS,
+      temperature: NVIDIA_TEMPERATURE,
+      top_p: NVIDIA_TOP_P,
+      stream: false,
+      chat_template_kwargs: {
+        enable_thinking: true,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`NVIDIA chat completion failed (${response.status}): ${errorText.slice(0, 500)}`);
+  }
+
+  return response.json();
+}
+
+async function chatWithNvidiaAgent({
+  normalizedMessages,
+  viewId,
+  usage,
+}) {
+  const schemaHint = buildSchemaHint();
+  const systemInstruction = buildSkillPrompt({ viewId, schemaHint });
+  const sqlLogs = [];
+  const messages = toNvidiaMessages(normalizedMessages, systemInstruction);
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+    const response = await callNvidiaChatCompletion({
+      messages,
+      tools: [NVIDIA_TOOL_DECLARATION],
+    });
+    accumulateNvidiaUsage(usage, response.usage);
+
+    const choice = response?.choices?.[0] || {};
+    const assistantMessage = choice.message || {};
+    const toolCalls = Array.isArray(assistantMessage.tool_calls) ? assistantMessage.tool_calls : [];
+
+    if (toolCalls.length === 0) {
+      const textReply = String(
+        assistantMessage.content
+        || assistantMessage.reasoning_content
+        || assistantMessage.reasoning
+        || "",
+      ).trim();
+
+      return {
+        reply: textReply.length > 0
+          ? textReply
+          : "Khong tim thay ket qua phu hop trong du lieu hien tai.",
+        sql_logs: sqlLogs,
+        usage,
+      };
+    }
+
+    messages.push({
+      role: "assistant",
+      content: assistantMessage.content || "",
+      tool_calls: toolCalls,
+    });
+
+    for (const toolCall of toolCalls) {
+      const functionName = toolCall?.function?.name || QUERY_FUNCTION_NAME;
+      let args = {};
+
+      try {
+        args = JSON.parse(toolCall?.function?.arguments || "{}");
+      } catch {
+        args = {};
+      }
+
+      try {
+        const result = executeSqlQuery({
+          sql: args.sql,
+          maxRows: args.max_rows,
+        });
+
+        sqlLogs.push({
+          name: functionName,
+          sql: result.sql,
+          row_count: result.row_count,
+          row_limit: result.row_limit,
+        });
+
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(result),
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Unknown SQL execution error.";
+        sqlLogs.push({
+          name: functionName,
+          sql: typeof args.sql === "string" ? args.sql : "",
+          row_count: 0,
+          row_limit: 0,
+          error: errorMessage,
+        });
+
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: JSON.stringify({ error: errorMessage }),
+        });
+      }
+    }
+  }
+
+  return {
+    reply: "Da vuot so lan truy van an toan. Vui long hoi lai voi pham vi nho hon.",
+    sql_logs: [],
+    usage,
+  };
+}
+
 export async function chatWithCrmAgent({
   messages,
   viewId,
 }) {
   ensureDashboardSalesDb();
+  const usage = createEmptyUsage();
 
   const normalizedMessages = normalizeMessages(messages);
   if (normalizedMessages.length === 0) {
     return {
       reply: "Vui lòng gửi câu hỏi về dữ liệu CRM.",
       sql_logs: [],
+      usage,
     };
   }
 
@@ -471,12 +677,24 @@ export async function chatWithCrmAgent({
     return {
       reply: "Vui lòng gửi câu hỏi mới từ người dùng.",
       sql_logs: [],
+      usage,
     };
   }
 
   const directRevenueAnswer = maybeHandleDirectSellerRevenueQuestion(latestMessage.content);
   if (directRevenueAnswer) {
-    return directRevenueAnswer;
+    return {
+      ...directRevenueAnswer,
+      usage,
+    };
+  }
+
+  if (getDefaultProvider() === "nvidia") {
+    return chatWithNvidiaAgent({
+      normalizedMessages,
+      viewId,
+      usage,
+    });
   }
 
   const ai = getAiClient();
@@ -496,7 +714,7 @@ export async function chatWithCrmAgent({
       };
 
     const response = await ai.models.generateContent({
-      model: DEFAULT_MODEL,
+      model: getDefaultModel(),
       contents,
       config: {
         temperature: 0.15,
@@ -507,6 +725,7 @@ export async function chatWithCrmAgent({
         },
       },
     });
+    accumulateUsage(usage, response.usageMetadata);
 
     const functionCalls = response.functionCalls || [];
     if (functionCalls.length === 0) {
@@ -516,6 +735,7 @@ export async function chatWithCrmAgent({
           ? textReply
           : "Không tìm thấy kết quả phù hợp trong dữ liệu hiện tại.",
         sql_logs: sqlLogs,
+        usage,
       };
     }
 
@@ -571,5 +791,6 @@ export async function chatWithCrmAgent({
   return {
     reply: "Đã vượt số lần truy vấn an toàn. Vui lòng hỏi lại với phạm vi nhỏ hơn.",
     sql_logs: sqlLogs,
+    usage,
   };
 }

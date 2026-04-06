@@ -58,12 +58,17 @@ app.get("/api/health", (_, res) => {
 });
 
 app.get("/api/debug/env-status", (_req, res) => {
-  const apiKey = process.env.GEMINI_API_KEY || "";
+  const geminiApiKey = process.env.GEMINI_API_KEY || "";
+  const nvidiaApiKey = process.env.NVIDIA_API_KEY || "";
   const model = process.env.CRM_AGENT_MODEL || "";
+  const provider = process.env.CRM_AGENT_PROVIDER || (nvidiaApiKey ? "nvidia" : "gemini");
   res.json({
     ok: true,
-    has_gemini_api_key: apiKey.length > 0,
-    gemini_api_key_length: apiKey.length,
+    crm_agent_provider: provider,
+    has_gemini_api_key: geminiApiKey.length > 0,
+    gemini_api_key_length: geminiApiKey.length,
+    has_nvidia_api_key: nvidiaApiKey.length > 0,
+    nvidia_api_key_length: nvidiaApiKey.length,
     crm_agent_model: model || null,
     prebuild_dashboard_db: process.env.PREBUILD_DASHBOARD_DB || null,
     sync_enabled: isSyncEnabled(),
@@ -195,6 +200,9 @@ if (shouldPrebuildDashboardDb) {
 console.log("[dashboard-api] env status", {
   hasGeminiApiKey: Boolean(process.env.GEMINI_API_KEY),
   geminiApiKeyLength: String(process.env.GEMINI_API_KEY || "").length,
+  hasNvidiaApiKey: Boolean(process.env.NVIDIA_API_KEY),
+  nvidiaApiKeyLength: String(process.env.NVIDIA_API_KEY || "").length,
+  crmAgentProvider: process.env.CRM_AGENT_PROVIDER || (process.env.NVIDIA_API_KEY ? "nvidia" : "gemini"),
   crmAgentModel: process.env.CRM_AGENT_MODEL || null,
   prebuildDashboardDb: process.env.PREBUILD_DASHBOARD_DB || null,
   syncEnabled: isSyncEnabled(),
