@@ -19,3 +19,4 @@ data/*.db.*
 data/dashboard_sales.db
 data/dashboard_sales.db-*
 data/dashboard_sales.db.*
+.vercel
