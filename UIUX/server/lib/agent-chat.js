@@ -19,9 +19,11 @@ const DEFAULT_MAX_ROWS = 40;
 const ABS_MAX_ROWS = 120;
 const MAX_SQL_LENGTH = 4000;
 const NVIDIA_CHAT_URL = process.env.NVIDIA_CHAT_URL || "https://integrate.api.nvidia.com/v1/chat/completions";
-const NVIDIA_MAX_TOKENS = Number.parseInt(process.env.CRM_AGENT_MAX_TOKENS || "16384", 10);
+const NVIDIA_MAX_TOKENS = Number.parseInt(process.env.CRM_AGENT_MAX_TOKENS || "2048", 10);
 const NVIDIA_TEMPERATURE = Number.parseFloat(process.env.CRM_AGENT_TEMPERATURE || "0.15");
 const NVIDIA_TOP_P = Number.parseFloat(process.env.CRM_AGENT_TOP_P || "0.95");
+const NVIDIA_REQUEST_TIMEOUT_MS = Number.parseInt(process.env.CRM_AGENT_REQUEST_TIMEOUT_MS || "30000", 10);
+const NVIDIA_ENABLE_THINKING = String(process.env.CRM_AGENT_ENABLE_THINKING || "false").trim().toLowerCase() === "true";
 const VALID_SQL_START = /^\s*(select|with)\b/i;
 const FORBIDDEN_SQL_KEYWORDS = /\b(insert|update|delete|drop|alter|create|replace|truncate|pragma|attach|detach|vacuum|reindex|analyze|begin|commit|rollback)\b/i;
 const TABLE_REFERENCE_PATTERN = /\b(?:from|join)\s+([a-zA-Z0-9_.`"[\]]+)/gi;
@@ -528,27 +530,41 @@ function executeSqlQuery({ sql, maxRows }) {
 }
 
 async function callNvidiaChatCompletion({ messages, tools }) {
-  const response = await fetch(NVIDIA_CHAT_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getNvidiaApiKey()}`,
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: getDefaultModel(),
-      messages,
-      tools,
-      tool_choice: "auto",
-      max_tokens: NVIDIA_MAX_TOKENS,
-      temperature: NVIDIA_TEMPERATURE,
-      top_p: NVIDIA_TOP_P,
-      stream: false,
-      chat_template_kwargs: {
-        enable_thinking: true,
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), NVIDIA_REQUEST_TIMEOUT_MS);
+
+  let response;
+  try {
+    response = await fetch(NVIDIA_CHAT_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${getNvidiaApiKey()}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
       },
-    }),
-  });
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: getDefaultModel(),
+        messages,
+        tools,
+        tool_choice: "auto",
+        max_tokens: NVIDIA_MAX_TOKENS,
+        temperature: NVIDIA_TEMPERATURE,
+        top_p: NVIDIA_TOP_P,
+        stream: false,
+        chat_template_kwargs: {
+          enable_thinking: NVIDIA_ENABLE_THINKING,
+        },
+      }),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`NVIDIA chat completion timed out after ${NVIDIA_REQUEST_TIMEOUT_MS}ms.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
