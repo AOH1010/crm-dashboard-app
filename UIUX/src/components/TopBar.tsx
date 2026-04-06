@@ -1,8 +1,19 @@
-import React from "react";
-import { Search, Bell, HelpCircle } from "lucide-react";
+import React, { useState } from "react";
+import { Search, Bell, HelpCircle, RefreshCcw } from "lucide-react";
 import SyncAdminPanel from "./SyncAdminPanel";
+import { emitLoadLiveData } from "../lib/liveDataEvents";
 
 export default function TopBar() {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleLoadLiveData = () => {
+    setIsRefreshing(true);
+    emitLoadLiveData();
+    window.setTimeout(() => {
+      setIsRefreshing(false);
+    }, 1200);
+  };
+
   return (
     <header className="fixed top-0 right-0 left-64 h-16 bg-background/95 backdrop-blur-md flex justify-between items-center px-8 w-[calc(100%-16rem)] z-40 border-b border-outline-variant/30">
       <div className="flex items-center gap-4 bg-surface-container-low px-4 py-2 rounded-lg w-96">
@@ -18,6 +29,16 @@ export default function TopBar() {
         <div className="relative">
           <SyncAdminPanel />
         </div>
+        <button
+          type="button"
+          onClick={handleLoadLiveData}
+          className="rounded-xl border border-outline-variant/60 bg-surface-container-low px-3 py-2 text-xs font-bold text-on-surface shadow-sm transition hover:bg-surface-container"
+        >
+          <span className="flex items-center gap-2">
+            <RefreshCcw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            {isRefreshing ? "Loading..." : "Load live data"}
+          </span>
+        </button>
         <button className="relative text-slate-500 hover:bg-slate-100 p-2 rounded-lg transition-all">
           <Bell className="w-5 h-5" />
           <span className="absolute top-2 right-2 w-2 h-2 bg-error rounded-full border-2 border-background"></span>

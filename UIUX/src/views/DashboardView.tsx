@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/src/lib/utils";
 import { fetchDashboard, type DashboardGrain, type DashboardResponse } from "@/src/lib/dashboardApi";
+import { LOAD_LIVE_DATA_EVENT } from "@/src/lib/liveDataEvents";
 import { readViewCache, writeViewCache } from "@/src/lib/viewCache";
 
 interface DashboardViewProps {
@@ -206,6 +207,17 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
     });
   };
 
+  useEffect(() => {
+    const onLoadLiveData = () => {
+      handleRefreshNow();
+    };
+
+    window.addEventListener(LOAD_LIVE_DATA_EVENT, onLoadLiveData);
+    return () => {
+      window.removeEventListener(LOAD_LIVE_DATA_EVENT, onLoadLiveData);
+    };
+  }, [fromDate, toDate, grain]);
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -219,16 +231,6 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={handleRefreshNow}
-            disabled={isRefreshing}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-[#1C1D21] shadow-ambient transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <RefreshCcw className={cn("h-4 w-4 text-[#3c6600]", isRefreshing && "animate-spin")} />
-            {isRefreshing ? "Loading..." : "Load live data"}
-          </button>
-
           <button
             type="button"
             onClick={handleResetToCurrentMonth}
@@ -261,11 +263,11 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
             {" "}
             <strong>Load live data</strong>
             {" "}
-            hoac doi bo loc.
+            tren top bar hoac doi bo loc.
           </span>
         ) : (
           <span>
-            Chua co cache local cho bo loc nay. Bam <strong>Load live data</strong> neu ban muon lay du lieu moi tu server.
+            Chua co cache local cho bo loc nay. Bam <strong>Load live data</strong> tren top bar neu ban muon lay du lieu moi tu server.
           </span>
         )}
       </section>

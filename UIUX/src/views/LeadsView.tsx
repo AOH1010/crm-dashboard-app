@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { RefreshCcw } from "lucide-react";
 import {
   PieChart,
   Pie,
@@ -21,6 +20,7 @@ import {
   ZoomableGroup,
 } from "react-simple-maps";
 import { fetchLeads, type LeadsResponse } from "@/src/lib/leadsApi";
+import { LOAD_LIVE_DATA_EVENT } from "@/src/lib/liveDataEvents";
 import { readViewCache, writeViewCache } from "@/src/lib/viewCache";
 
 type LeadsMode = "customers" | "leads";
@@ -226,6 +226,17 @@ export default function LeadsView() {
   };
 
   useEffect(() => {
+    const onLoadLiveData = () => {
+      void handleRefreshNow();
+    };
+
+    window.addEventListener(LOAD_LIVE_DATA_EVENT, onLoadLiveData);
+    return () => {
+      window.removeEventListener(LOAD_LIVE_DATA_EVENT, onLoadLiveData);
+    };
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadMapNames() {
@@ -407,16 +418,6 @@ export default function LeadsView() {
             Vietnam heatmap by province with customer conversion insights by industry and segment group.
           </p>
         </div>
-
-        <button
-          type="button"
-          onClick={() => void handleRefreshNow()}
-          disabled={isRefreshing}
-          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-[#1C1D21] shadow-ambient transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <RefreshCcw className={cn("h-4 w-4 text-[#3c6600]", isRefreshing && "animate-spin")} />
-          {isRefreshing ? "Loading..." : "Load live data"}
-        </button>
       </div>
 
       <section className="rounded-2xl border border-gray-200 bg-white p-4 text-sm text-gray-600 shadow-ambient">
@@ -424,11 +425,11 @@ export default function LeadsView() {
           <span>
             Dang hien cache luu luc <strong>{new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short" }).format(new Date(cacheSavedAt))}</strong>.
             {" "}
-            Bam <strong>Load live data</strong> khi ban muon danh thuc backend va cap nhat so moi.
+            Bam <strong>Load live data</strong> tren top bar khi ban muon danh thuc backend va cap nhat so moi.
           </span>
         ) : (
           <span>
-            Chua co cache local cho man Leads. Bam <strong>Load live data</strong> de lay snapshot moi tu server.
+            Chua co cache local cho man Leads. Bam <strong>Load live data</strong> tren top bar de lay snapshot moi tu server.
           </span>
         )}
       </section>
