@@ -9,6 +9,7 @@ import {
 } from "./lib/dashboard-sales-db.js";
 import { getConversionPayload } from "./lib/conversion-data.js";
 import { getLeadsPayload } from "./lib/leads-data.js";
+import { getTeamPayload } from "./lib/team-data.js";
 import { ensureSeededCrmDb } from "./lib/seed-db.js";
 import {
   getBootSyncMode,
@@ -156,6 +157,21 @@ app.get("/api/sales/leads", (_req, res) => {
     console.error("[leads-api] failed to build payload", error instanceof Error ? error.stack : error);
     res.status(500).type("application/json").send(JSON.stringify({
       error: "Failed to load leads data.",
+    }));
+  }
+});
+
+app.get("/api/sales/team", (req, res) => {
+  try {
+    const payload = getTeamPayload({
+      from: typeof req.query.from === "string" ? req.query.from : undefined,
+      to: typeof req.query.to === "string" ? req.query.to : undefined,
+    });
+    res.status(200).type("application/json").send(JSON.stringify(payload));
+  } catch (error) {
+    console.error("[team-api] failed to build payload", error instanceof Error ? error.stack : error);
+    res.status(500).type("application/json").send(JSON.stringify({
+      error: "Failed to load team data.",
     }));
   }
 });

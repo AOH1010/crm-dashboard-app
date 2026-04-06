@@ -501,7 +501,7 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
           </section>
         </div>
 
-        <aside className="lg:col-span-3 flex h-full flex-col rounded-2xl bg-[#1C1D21] p-6 shadow-xl">
+        <aside className="lg:col-span-3 flex self-start flex-col rounded-2xl bg-[#1C1D21] p-6 shadow-xl">
           <div className="mb-8">
             <h2 className="text-xl font-bold text-[#B8FF68]">Top 5 Sales</h2>
             <p className="mt-1 text-xs uppercase tracking-[0.2em] text-zinc-400">
@@ -509,7 +509,7 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
             </p>
           </div>
 
-          <div className="flex-1 space-y-4">
+          <div className="space-y-4">
             {dashboard?.leaderboard?.map((entry) => (
               <div key={`${entry.rank}-${entry.seller_name}`} className="rounded-2xl border border-white/5 bg-white/5 p-3.5">
                 <div className="mb-2 flex items-start justify-between gap-4">
