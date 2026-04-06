@@ -2,6 +2,6 @@
   "name": "crm-dashboard-root",
   "private": true,
   "scripts": {
-    "build": "npm run build --prefix UIUX"
+    "build": "npm install --prefix UIUX && npm run build --prefix UIUX"
   }
 }
